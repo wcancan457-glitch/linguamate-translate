@@ -25,6 +25,26 @@ linguamate-desktop/   Electron 桌面客户端
 两个目录是各自独立的 npm 工程，各有 `package.json` 和 `.gitignore`，
 不共享 `node_modules`，也不需要一并安装。
 
+## 我该改哪个目录？
+
+**默认只改 `linguamate-desktop/`。** 它是界面和桌面能力（按钮、快捷键、划词、截图、录音交互、
+显示问题），你日常的功能改动几乎都在这里。
+
+`linguamate-live/` 是后端，只在下面这些时候才动：
+
+| 什么时候 | 改哪个 |
+|---|---|
+| 加按钮、改界面、加快捷键 | `linguamate-desktop/` |
+| 修划词 / 截图 / 录音的交互 | `linguamate-desktop/` |
+| 修显示、状态提示 | `linguamate-desktop/` |
+| 改翻译的提示词（system prompt） | `linguamate-live/backend/` |
+| 换腾讯云模型 / 区域 / 签名细节 | `linguamate-live/backend/` |
+| 新增一个后端接口 | `linguamate-live/backend/` |
+
+两者的分工是：桌面端渲染界面后用 `fetch` 请求 `http://localhost:8787` 上的后端接口，
+后端再去调腾讯云。**改界面不需要碰后端**——现有的 `/v1/translate`、`/v1/translate-en2zh`、
+`/v1/ocr` 已经覆盖全部四种功能。
+
 ## 环境变量
 
 真实凭据**不在仓库里**。复制示例文件后自行填写：
