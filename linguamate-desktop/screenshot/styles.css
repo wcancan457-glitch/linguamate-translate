@@ -1,0 +1,66 @@
+/* 阶段 5 步骤 5：截图覆盖层样式。
+   遮罩 50% 黑、选区紫色描边，都是计划里定死的值。 */
+
+:root {
+  --accent: rgb(199, 169, 255);
+  --accent-soft: rgba(199, 169, 255, 0.15);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+  /* 覆盖层是纯交互面，不该能选中文字 */
+  user-select: none;
+  cursor: crosshair;
+}
+
+/* 计划指定：rgba(0,0,0,0.5)。这个遮罩会在选区里透出来，所以越淡越好认，
+   但它同时是「现在正在截图」的视觉信号，不能太淡。 */
+.mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.selection {
+  position: fixed;
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  box-sizing: border-box;
+  /* 选区必须盖在遮罩之上，否则会看不到 */
+  z-index: 2;
+  pointer-events: none;
+}
+
+.size {
+  position: absolute;
+  right: 0;
+  bottom: -22px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #1a1d29;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.hint {
+  position: fixed;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: rgba(26, 29, 41, 0.92);
+  color: #e8e6f0;
+  font-size: 13px;
+  z-index: 3;
+  pointer-events: none;
+}

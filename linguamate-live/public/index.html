@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinguaMate Live</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>LinguaMate <span>Live</span></h1>
+          <p class="subtitle">说中文，实时看见英文。</p>
+        </div>
+        <label class="provider">识别方式
+          <select id="provider">
+            <option value="tencent">腾讯云实时 ASR</option>
+            <option value="browser">浏览器演示（备用）</option>
+          </select>
+        </label>
+      </header>
+
+      <section class="statusbar"><span id="dot"></span><span id="status">准备开始</span><span class="hint">短暂停顿后生成净化稿和英文</span></section>
+
+      <section class="panes">
+        <article class="pane"><div class="pane-title"><span>01</span> 中文净化稿</div><textarea id="chinese" class="content editor" lang="zh-CN" aria-label="中文净化稿，可直接编辑" placeholder="净化后的中文会显示在这里。"></textarea><p id="draft" class="draft" aria-live="polite"></p></article>
+        <article class="pane accent"><div class="pane-title"><span>02</span> English</div><textarea id="english" class="content editor" lang="en" aria-label="英文翻译，可直接编辑" placeholder="Your English translation will appear here."></textarea><p id="translating" class="draft"></p></article>
+      </section>
+
+      <section class="controls">
+        <button id="record" class="record"><i></i><span>开始说话</span></button>
+        <button id="copy-chinese" class="secondary">复制中文</button>
+        <button id="copy-english" class="secondary">复制英文</button>
+        <button id="clear" class="secondary">清空</button>
+      </section>
+      <p class="privacy">音频不会在本应用中保存。正式云端模式仅通过你的后端中转。</p>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

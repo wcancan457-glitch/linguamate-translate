@@ -1,0 +1,10 @@
+node_modules/
+.npm-cache/
+.env
+.env.*
+dist/
+out/
+dist-electron/
+win-unpacked/
+*.log
+.DS_Store

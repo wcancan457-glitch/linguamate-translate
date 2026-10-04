@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none';"
+    />
+    <title>LinguaMate</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="mask" id="mask"></div>
+    <div class="selection" id="selection" hidden>
+      <span class="size" id="size"></span>
+    </div>
+    <p class="hint" id="hint">拖框选择区域 · Esc / 右键取消</p>
+    <script src="index.js"></script>
+  </body>
+</html>

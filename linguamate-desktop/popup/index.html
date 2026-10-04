@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' http://localhost:8787; font-src 'self'; object-src 'none'; base-uri 'none';"
+    />
+    <title>LinguaMate</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <article class="popup" id="popup" role="dialog" aria-label="译文">
+      <header class="head">
+        <span class="kind" id="kind">划词翻译</span>
+        <button class="close" id="close" type="button" title="关闭" aria-label="关闭">×</button>
+      </header>
+
+      <section class="source" id="source-wrap" aria-label="原文" hidden>
+        <div class="source-label">原文</div>
+        <div class="source-text" id="source"></div>
+      </section>
+
+      <section class="result" aria-live="polite">
+        <div class="translation" id="translation"></div>
+        <p class="notice" id="notice" hidden></p>
+      </section>
+
+      <footer class="foot">
+        <span class="status" id="status">准备中…</span>
+        <div class="actions">
+          <button class="btn" id="screenshot" type="button" hidden>截图翻译</button>
+          <button class="btn" id="retry" type="button" hidden>重试</button>
+          <button class="btn" id="copy" type="button" hidden>复制</button>
+        </div>
+      </footer>
+    </article>
+    <script src="popup.js"></script>
+  </body>
+</html>

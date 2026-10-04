@@ -1,0 +1,70 @@
+{
+  "name": "linguamate-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LinguaMate Live 桌面端（阶段 4：本机交付）",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "test": "node --test test/*.test.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.linguamate.live",
+    "productName": "LinguaMate",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "popup/**/*",
+      "screenshot/**/*",
+      "build/**/*",
+      "FIRST_RUN.md",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "FIRST_RUN.md"
+    ],
+    "extraResources": [
+      {
+        "from": "../linguamate-live/backend",
+        "to": "backend",
+        "filter": [
+          "src/**/*",
+          "node_modules/**/*",
+          "package.json"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LinguaMate",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    },
+    "publish": null
+  }
+}
