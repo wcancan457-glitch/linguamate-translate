@@ -336,6 +336,52 @@ test('单例：连续触发只留最新一个，旧弹窗被销毁', async () =>
   mgr.dispose();
 });
 
+test('单例：并发触发（不等前一次建完）也只留最新一个，旧窗口必须被销毁', async () => {
+  // 回归：2026-10-18 用户报「没按 Ctrl+C 也弹出划词面板，且卡在「正在读取…」关不掉」。
+  // 真实触发是**并发**的——语音输入法一轮写两次剪贴板，两次触发间隔约 500ms，
+  // 而建窗要 await readForeground()（一次 PowerShell，~300ms）才往下走。
+  // 两次调用于是交错：都先跑过 destroy()，再各自建一个窗，后一个把 win 的引用覆盖掉。
+  // 被覆盖的那个窗口**还在屏幕上**，但 isOwnSender 会拒掉它发来的 popup:close，
+  // 于是点 [×] / 按 Esc 都没有任何反应——这正是「关不掉」。
+  // 顺序 await 的那个单例测试抓不到这个：它两次调用根本不会交错。
+  const { mgr, fx } = makeManager({
+    // 建窗前那段 await 用可控闸门制造交错
+    readForeground: () => new Promise((resolve) => { gates.push(resolve); }),
+  });
+  const gates = [];
+
+  const first = mgr.showTranslationPopup({ mode: 'selection', translation: '第一条' });
+  const second = mgr.showTranslationPopup({ mode: 'selection', translation: '第二条' });
+
+  // 放行两次 readForeground，两次调用在 await 处交错后继续
+  assert.equal(gates.length, 2, '两次调用都进入了 await readForeground');
+  gates[0]();
+  gates[1]();
+  await Promise.all([first, second]);
+
+  const alive = fx.created.filter((w) => !w.isDestroyed());
+  assert.equal(alive.length, 1, `同一时刻只允许一个弹窗在屏幕上，实际有 ${alive.length} 个`);
+  mgr.dispose();
+});
+
+test('关不掉回归：孤儿窗口若存在，[×] 与 Esc 都必须还能把它关掉', async () => {
+  // 上一条修的是「别产生孤儿」。这一条守的是**万一还是产生了**的兜底：
+  // 屏幕上任何一个还活着的弹窗，用户点 [×] 必须能关掉它。
+  // isOwnSender 只认「当前那一个」，一旦引用错位，屏幕上的窗口就成了关不掉的死面板。
+  const { mgr, fx } = makeManager();
+  await mgr.showTranslationPopup({ mode: 'selection', translation: '第一条' });
+  const orphan = fx.created[0];
+
+  // 模拟引用错位：又来一次触发，win 指向了新窗口
+  await mgr.showTranslationPopup({ mode: 'selection', translation: '第二条' });
+  const current = fx.created[1];
+
+  // 无论引用指向谁，destroy 都得把**所有**活着的窗口收掉
+  mgr.close();
+  assert.equal(orphan.isDestroyed(), true, '屏幕上那个窗口必须被销毁，不能留在那儿');
+  assert.equal(current.isDestroyed(), true);
+});
+
 test('update 能把「识别中…」推成「译文」而不重建窗口', async () => {
   const { mgr, fx } = makeManager();
   await mgr.showTranslationPopup({ mode: 'screenshot', status: '识别中…' });

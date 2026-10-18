@@ -126,6 +126,8 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   // 必须先停监听：它是常驻 PowerShell 子进程，不杀会变成孤儿进程继续占着剪贴板监听
   stopSelectionWatcher();
+  // 看门狗是个普通定时器，不清会拖住退出流程
+  clearCaptureWatchdog();
   // 步骤 4：退出时必须销毁弹窗，否则 frameless + alwaysOnTop 的窗口会留残影
   popupManager?.dispose();
   // 步骤 5：退出时必须销毁覆盖层。frameless + alwaysOnTop + 全屏的窗口留残影的话，
@@ -347,6 +349,26 @@ let popupAbort = null;
 // 跳一下、重新定位（每次建窗还要多起一个 PowerShell 读前台矩形，~300ms）。
 let pendingStartPopup = null;
 
+// 「正在读取…」骨架的看门狗。
+//
+// 判定为双复制之后，流程有且只有两条出路：读到内容（handleSelectionCaptured）
+// 或读不到（handleSelectionUnreadable），两条都会更新或关闭这个弹窗。哪条都没走，
+// 就是流程断了，面板会永远停在「正在读取…」——2026-10-18 用户报的 BADCASE-001。
+// 这次修掉了当时已知的两条断路（并发建窗、压制分支），但再往前一步更好：
+// 任何**将来**新加的分支忘了收尾，也不会再留一块点不掉的面板在屏幕上。
+//
+// 上限 8s 的依据：读剪贴板是同步的，最慢的一段是 UIA 备用通道，它的 execFile
+// 超时是 3s（selection-reader.js）。8s 给足余量，又不至于让真故障留太久。
+const CAPTURE_WATCHDOG_MS = 8000;
+let captureWatchdog = null;
+
+function clearCaptureWatchdog() {
+  if (!captureWatchdog) return;
+  clearTimeout(captureWatchdog);
+  captureWatchdog = null;
+}
+
+
 function truncateForTranslate(text) {
   const s = String(text || '');
   if (s.length <= MAX_TRANSLATE_CHARS) return { body: s, truncated: false };
@@ -393,11 +415,18 @@ let lastUnreadableAt = 0;
 function handleSelectionUnreadable(payload) {
   const reason = (payload && payload.reason) || 'unknown';
   const now = Date.now();
+  // 走到这里说明捕获流程已经出了结果，看门狗不必再等。
+  clearCaptureWatchdog();
   if (lastUnreadableAt && now - lastUnreadableAt < UNREADABLE_COOLDOWN_MS) {
     // 连续读不到：只记元数据，不弹。同一块面板反复盖在正在输入的字上面，
     // 用户既看不出差别，也腾不出手去关它。**不静默**——记进日志，
     // 开着 LINGUAMATE_DEBUG 一眼就能看出被压掉了几次、间隔多少。
     logSelectionMeta('unreadable-suppressed', { reason, sinceMs: now - lastUnreadableAt });
+    // 骨架必须一起收掉。onCaptureStart 在判定瞬间就建了「正在读取…」，
+    // 直接 return 会把它留在屏幕上——一块永远不动的面板盖着用户正在输入的字。
+    // 压制的意思是「别打扰」，不是「留个空壳继续打扰」。
+    // （BADCASE-001 缺陷 B：这里原本只 return，屏幕上的骨架没人收。）
+    if (popupManager) popupManager.close();
     return;
   }
   lastUnreadableAt = now;
@@ -421,6 +450,7 @@ function handleSelectionUnreadable(payload) {
 function handleSelectionCaptured(payload) {
   const { body, truncated } = truncateForTranslate((payload && payload.text) || '');
   logSelectionMeta('captured', { source: (payload && payload.source) || 'clipboard', len: body.length });
+  clearCaptureWatchdog();          // 捕获流程有结果了，看门狗不必再等
   if (body) lastUnreadableAt = 0; // 成功一次就解封，别让压制盖住真正的划词
   if (!body) {
     handleSelectionUnreadable({ reason: 'empty-after-capture' });
@@ -555,6 +585,14 @@ function startSelectionWatcher() {
         translation: '',
         status: '正在读取…',
       }).finally(() => { pendingStartPopup = null; });
+      // 看门狗：8s 内既没读到内容、也没走到「读不到」，就是流程断了，
+      // 收掉这块骨架，绝不让它停在「正在读取…」留在屏幕上。
+      clearCaptureWatchdog();
+      captureWatchdog = setTimeout(() => {
+        captureWatchdog = null;
+        logSelectionMeta('start-watchdog', { sinceMs: CAPTURE_WATCHDOG_MS });
+        if (popupManager) popupManager.close();
+      }, CAPTURE_WATCHDOG_MS);
     },
     onCaptured: handleSelectionCaptured,
     onUnreadable: handleSelectionUnreadable,

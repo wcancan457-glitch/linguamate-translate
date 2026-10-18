@@ -195,6 +195,18 @@ function createPopupManager(deps = {}) {
   let win = null;
   let payload = null;
   let disposed = false;
+  // 屏幕上**所有**活着的弹窗。win 只是「当前那一个」的引用。
+  //
+  // 为什么不能只有 win：建窗要 await readForeground()（一次 PowerShell，约 300ms），
+  // 这段是悬空的。并发触发时两次调用会先后都通过 destroy()，再各自建一个窗，
+  // 后一个把 win 的引用覆盖掉。被覆盖的那个**还在屏幕上**，但：
+  //   · update() 只发给 win → 它永远停在建窗时的「正在读取…」
+  //   · isOwnSender() 拒掉它发来的 popup:close（sender 不是当前 win）→ [×] 和 Esc 都没反应
+  // 两者叠加就是「弹窗卡住且关不掉」。2026-10-18 用户报的就是这个，
+  // 见 CLAUDE_HANDOFF §5.1 BADCASE-001，回归测试在 test/popup-manager.test.js。
+  const live = new Set();
+  // 建窗序号。await 期间若又来了一次触发，序号就对不上，本次直接放弃。
+  let showSeq = 0;
 
   function handle(channel, listener) {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return;
@@ -319,11 +331,14 @@ function createPopupManager(deps = {}) {
   }
 
   function destroy() {
-    if (win && !win.isDestroyed()) {
-      const dying = win;
-      win = null;
-      try { dying.destroy(); } catch { /* 已经没了 */ }
+    // 遍历**全部**活着的窗口，而不是只关 win。
+    // 只关 win 的话，任何引用错位留下的窗口都会变成屏幕上点不掉、Esc 也关不掉的死面板。
+    for (const w of live) {
+      if (!w || w.isDestroyed()) continue;
+      try { w.destroy(); } catch { /* 已经没了 */ }
     }
+    live.clear();
+    win = null;
   }
 
   /**
@@ -338,8 +353,7 @@ function createPopupManager(deps = {}) {
     if (disposed) return null;
     if (process.platform !== 'win32') return null;
 
-    // 单例：先毁掉旧的
-    destroy();
+    const mySeq = ++showSeq;
 
     // 顺序要紧：先读前台矩形，再建窗口，否则"前台"可能已经是弹窗了
     let foregroundRect = null;
@@ -347,11 +361,19 @@ function createPopupManager(deps = {}) {
       foregroundRect = await readForeground();
       // 只输出窗口坐标这类元数据：不含选区文本、不含剪贴板内容（§4.1 第 3 条的口径）
       logger('popup', 'foreground', foregroundRect ? JSON.stringify(foregroundRect) : 'fallback');
+      // await 期间可能又来了一次触发（语音输入法一轮写两次剪贴板就会这样）。
+      // 后来的那次才是用户当下要的，本次直接放弃——两个都建出来的话后一个会
+      // 覆盖 win 的引用，前一个就成了关不掉的孤儿（BADCASE-001 缺陷 A）。
+      if (mySeq !== showSeq) return null;
     }
+
+    // 销毁必须放在 await **之后**。放在前面挡不住并发的那一次：
+    // 两次调用会先后都通过它，然后各自建一个窗。
+    destroy();
 
     payload = { ...data, foregroundRect, mode: data.mode || 'screenshot' };
 
-    win = new BrowserWindow({
+    const created = new BrowserWindow({
       width: POPUP_WIDTH,
       height: POPUP_MIN_HEIGHT,
       show: false,                 // 等渲染层回报真实高度再显示，避免闪
@@ -376,14 +398,29 @@ function createPopupManager(deps = {}) {
         backgroundThrottling: false,
       },
     });
+    live.add(created);
+    win = created;
 
-    win.setMenu(null);
-    // 关掉窗口（Alt+F4 / 任务栏）也要走同一条销毁路径
-    win.on('closed', () => { win = null; });
-    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    created.setMenu(null);
+    // 关掉窗口（Alt+F4 / 任务栏）也要走同一条销毁路径。
+    // 只在 win 仍指向自己时才置空——否则会把后来的那个窗口的引用也抹掉。
+    created.on('closed', () => {
+      live.delete(created);
+      if (win === created) win = null;
+    });
+    created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
-    await win.loadFile(indexPath);
-    return win;
+    try {
+      await created.loadFile(indexPath);
+    } catch (error) {
+      // 加载期间窗口被顶掉了（并发触发）是最常见的一种，按作废处理返回 null。
+      // 不接住的话它会一路冒到 main.js，那里没人处理这个 rejection。
+      if (!created.isDestroyed()) {
+        logger('popup', 'loadFile failed', String((error && error.message) || error));
+      }
+      return null;
+    }
+    return created;
   }
 
   function dispose() {
