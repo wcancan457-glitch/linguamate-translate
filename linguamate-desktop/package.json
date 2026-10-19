@@ -1,6 +1,6 @@
 {
   "name": "linguamate-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "LinguaMate Live 桌面端（阶段 4：本机交付）",
   "main": "src/main.js",
@@ -50,7 +50,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },

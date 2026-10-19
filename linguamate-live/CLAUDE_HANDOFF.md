@@ -18,19 +18,30 @@
 
 ## 2. 当前仓库与运行方式
 
-根目录：`D:\zxf\claude\linguamate-live`
+仓库根目录：`D:\zxf\claude\LinguaMate`（**唯一的 git 根**）
 
-桌面客户端在**同级目录** `D:\zxf\claude\linguamate-desktop`（不是子目录）。
+```
+LinguaMate\
+├─ linguamate-desktop\   桌面客户端（Electron）
+└─ linguamate-live\
+   ├─ backend\            Node 后端（8787），两端共用这一套
+   └─ public\             网页 MVP
+```
+
+两个目录是**同级**的，不是父子。这不是随手选的：`linguamate-desktop\src\main.js`
+里的 `resolveBackendDir()` 把后端路径写死成 `..\..\linguamate-live\backend`，
+只有这种同级布局才能解析成功。**移动任何一个目录，桌面端就会找不到后端。**
+
 两者共用 `linguamate-live\backend` 这一套后端。
 
 ```powershell
 # 后端 + 网页 MVP（回归对照与后端调试入口，仍然保留、仍能独立跑）
-cd D:\zxf\claude\linguamate-live\backend
+cd D:\zxf\claude\LinguaMate\linguamate-live\backend
 npm start
 # 浏览器访问 http://localhost:8787/
 
 # 桌面客户端（dev）
-cd D:\zxf\claude\linguamate-desktop
+cd D:\zxf\claude\LinguaMate\linguamate-desktop
 npm start
 # 打包出安装包
 npm run dist
@@ -39,9 +50,9 @@ npm run dist
 测试：
 
 ```powershell
-cd D:\zxf\claude\linguamate-live\backend
+cd D:\zxf\claude\LinguaMate\linguamate-live\backend
 npm test
-cd D:\zxf\claude\linguamate-desktop
+cd D:\zxf\claude\LinguaMate\linguamate-desktop
 npm test
 ```
 
@@ -102,7 +113,7 @@ CLEANUP_MODEL
 > 阶段 1–4 交付后没有同步，属于文档落后于实现。已按实际交付重写。
 
 当前用户实际使用的是 **Windows 桌面客户端**（Electron，NSIS 安装包），
-根目录 `D:\zxf\claude\linguamate-desktop`，产物 `LinguaMate Setup 0.1.0.exe`。
+根目录 `D:\zxf\claude\LinguaMate\linguamate-desktop`，产物 `LinguaMate Setup 0.1.1.exe`。
 **默认不再需要打开 Chrome、不需要手动跑 `npm start`。**
 
 安装后的完整使用路径：
@@ -293,7 +304,7 @@ Claude 每次停下时必须用下面四项汇报，不要只说“完成了”�
 
 首选 Electron，而非 Tauri：现有项目已是 Node + 原生 Web 前端，Electron 复用成本最低。
 
-建议新建同级目录 `D:\zxf\claude\linguamate-desktop`，不要破坏现有 `linguamate-live` 网页 MVP。
+桌面端已建于同级目录 `D:\zxf\claude\LinguaMate\linguamate-desktop`，现有 `linguamate-live` 网页 MVP 完整保留。
 
 建议组件：
 

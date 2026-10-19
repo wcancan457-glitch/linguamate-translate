@@ -97,7 +97,7 @@ npm install
 npm run dist
 ```
 
-产物：`dist-electron\LinguaMate Setup 0.1.0.exe`。双击安装：
+产物：`dist-electron\LinguaMate Setup 0.1.1.exe`。双击安装：
 
 - 选择安装目录（默认 `%LOCALAPPDATA%\Programs\LinguaMate\`）；
 - 勾选"创建桌面快捷方式"和"创建开始菜单快捷方式"；
