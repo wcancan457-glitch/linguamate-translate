@@ -332,7 +332,11 @@ function readEnvInt(name, fallback) {
  * @param {object} options
  * @param {() => string} options.readText 读剪贴板（Electron clipboard.readText），只读
  * @param {() => Promise<{text: string}|null>} [options.readSelection] 备用通道
- * @param {() => void} options.onCaptureStart 判定为双复制时**立刻**调用，让 UI 显示「正在读取复制文本…」
+ * @param {() => void} options.onCaptureStart 确认「真的读到了内容」之后、回调
+ *   onCaptured 之前调用，让 UI 显示「正在读取复制文本…」。**不是在判定为双复制的
+ *   瞬间**——剪贴板里没有纯文本时不许出声，否则输入法每写一次位图就会在屏幕上摆
+ *   一块「正在读取…」，那正是 BADCASE-001 的现场。两条通道都空手时它一次都不会被
+ *   调用，所以调用方**不需要**在 onUnreadable 里替它收尾。
  * @param {(payload: {text: string, source: string}) => void} options.onCaptured
  * @param {(payload: {reason: string}) => void} options.onUnreadable
  */
@@ -369,24 +373,42 @@ function createSelectionCapture(options = {}) {
   });
 
   async function handleTrigger() {
-    // 先通知 UI，再去读——绝不让用户对着一个沉默的界面等。
-    onCaptureStart?.();
+    // **先读，再决定要不要出声。**
+    //
+    // 顺序不是风格问题，是 BADCASE-001 的直接成因。语音输入法一轮往剪贴板写两次
+    // 位图（实测间隔 497/523/559/564ms），正落在可触发区间 [280ms, 1000ms] 的正中，
+    // 于是每按一次右 Alt 就被判成「用户双击了 Ctrl+C」。而位图写入会把纯文本格式
+    // 一起清掉（实测 textlen=0），readText() 必然返回空。
+    //
+    // 原来的写法是「先建骨架 → 再去读」，于是每次输入法触发都会先在屏幕上摆一块
+    // 「正在读取…」，几百毫秒后自己撤掉或翻成「无法读取」。骨架那一下正是用户投诉的
+    // 「没按 Ctrl+C 却弹出、卡住、还关不掉」。
+    //
+    // 所以门控放在**建骨架之前**：确认真的有内容可读，才让 UI 发出声音。
 
     // 每次触发都**当场重读**，绝不复用上一次读到的内容。
-    // 读到空的一律判失败：宁可什么都不做，也不能回退去翻译旧剪贴板。
     let text = '';
     try {
       text = String(readText?.() ?? '');
     } catch {
       text = '';
     }
-    if (text.trim()) {
-      onCaptured?.({ text: text.trim(), source: 'clipboard' });
+    const trimmed = text.trim();
+
+    if (trimmed) {
+      // 主通道拿到了纯文本。这才值得先给用户一个「正在读取…」——骨架此时一定会
+      // 在几十毫秒内被 handleSelectionCaptured 顶掉，不会留在屏幕上。
+      onCaptureStart?.();
+      onCaptured?.({ text: trimmed, source: 'clipboard' });
       return;
     }
 
     // 主通道拿不到纯文本（复制的是图片、剪贴板被清空、或应用禁用了纯文本格式），
-    // 才轮到备用通道。这里同样绝不触发截图。
+    // 才轮到备用通道。
+    //
+    // 这里**保持沉默**，直到 UIA 真的给出内容为止：它是一次 PowerShell 调用，约
+    // 300ms。期间先摆骨架就是先撒谎再撤回；先弹「正在读取…」再撤掉，用户看到的是
+    // 一块闪一下的面板——这正是要消掉的东西。
     let fallback = null;
     try {
       fallback = await readSelection?.();
@@ -395,9 +417,14 @@ function createSelectionCapture(options = {}) {
     }
     const fallbackText = fallback && typeof fallback.text === 'string' ? fallback.text.trim() : '';
     if (fallbackText) {
+      // 到这一步确实有内容了，才出声。
+      onCaptureStart?.();
       onCaptured?.({ text: fallbackText, source: 'uia' });
       return;
     }
+
+    // 两条通道都没有。到这里**一次骨架都没建过**，所以调用方不必替我们收尾——
+    // 它手上可能正开着别的弹窗（比如用户刚做的截图翻译），替我们 close() 会误伤。
     onUnreadable?.({ reason: 'no-plain-text' });
   }
 

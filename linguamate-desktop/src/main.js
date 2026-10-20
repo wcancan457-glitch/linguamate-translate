@@ -422,11 +422,14 @@ function handleSelectionUnreadable(payload) {
     // 用户既看不出差别，也腾不出手去关它。**不静默**——记进日志，
     // 开着 LINGUAMATE_DEBUG 一眼就能看出被压掉了几次、间隔多少。
     logSelectionMeta('unreadable-suppressed', { reason, sinceMs: now - lastUnreadableAt });
-    // 骨架必须一起收掉。onCaptureStart 在判定瞬间就建了「正在读取…」，
-    // 直接 return 会把它留在屏幕上——一块永远不动的面板盖着用户正在输入的字。
-    // 压制的意思是「别打扰」，不是「留个空壳继续打扰」。
-    // （BADCASE-001 缺陷 B：这里原本只 return，屏幕上的骨架没人收。）
-    if (popupManager) popupManager.close();
+    // 这里**不要** popupManager.close()。
+    //
+    // 它曾经是 BADCASE-001 缺陷 B 的补丁：当时 onCaptureStart 在判定为双复制的瞬间
+    // 就建了骨架，压制分支直接 return 会把它留在屏幕上。现在 selection-capture 改成
+    // 「先读、确认有内容才出声」，走到 unreadable 说明**一次骨架都没建过**——
+    // 屏幕上那块面板是别的操作留下的（比如用户刚做完的截图翻译）。
+    // 这时候替它 close()，压制的效果就变成了「输入法每敲一次就关掉用户的截图译文」。
+    // 缺陷 B 现在是被结构性消除的：骨架压根不会被创建，不需要事后收。
     return;
   }
   lastUnreadableAt = now;
@@ -573,10 +576,12 @@ function startSelectionWatcher() {
   selectionCapture = createSelectionCapture({
     // 只读。整个划词链路没有任何写剪贴板的调用。
     readText: () => clipboard.readText(),
-    // 备用通道：剪贴板里没有**新的**纯文本时，才用 UIA 读选区
+    // 备用通道：剪贴板里没有**新的**纯文本时，才用 UIA 读选区。
+    // 它不会替剪贴板「兜住」一次没复制文字的触发——onCaptureStart 只在真的读到内容
+    // 后才被调用，所以语音输入法写位图时屏幕上不会出现任何面板。
     readSelection: readActiveSelection,
     onCaptureStart: () => {
-      // 判定为双复制的瞬间就出声，不要静默等待——用户要看到「有反应了」
+      // 确认有内容可读之后才出声——此刻骨架一定会被 handleSelectionCaptured 顶掉
       if (!popupManager) return;
       // 这里返回的 Promise 存起来给 translateSelection 复用，避免一次划词建两个窗
       pendingStartPopup = popupManager.showTranslationPopup({

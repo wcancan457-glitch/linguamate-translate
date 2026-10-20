@@ -318,9 +318,56 @@ test('主入口：两条通道都拿不到时判 unreadable，绝不翻译旧剪
   await tick(60);
   child.emitLines('LMCLIP CHANGE 3009\n');
   await tick(150);
-  assert.deepEqual(events.map((e) => e.type), ['start', 'unreadable']);
-  assert.equal(events[1].reason, 'no-plain-text');
+  // 门控：没有内容就**一次骨架都不建**。BADCASE-001 的现场就是这块骨架——
+  // 语音输入法写位图被判成双复制后，先摆出来再撤掉，撤不掉时就永远停着。
+  assert.deepEqual(events.map((e) => e.type), ['unreadable']);
+  assert.equal(events[0].reason, 'no-plain-text');
   assert.equal(events.some((e) => e.type === 'captured'), false, '任何情况下都不得回退去翻译旧内容');
+  assert.equal(events.some((e) => e.type === 'start'), false, '空内容时不得建骨架');
+  capture.stop();
+});
+
+test('门控：剪贴板没有纯文本时全程不建骨架（语音输入法场景）', async () => {
+  // 位图写入会把纯文本格式一起清掉，所以 readText() 必然是空。
+  // 真正要防的是「先出声再撤回」——撤回成功也是一次闪烁，撤不掉就是死面板。
+  const { capture, child, events, copyOnce } = wireCapture({
+    readText: () => '',
+    readSelection: async () => null,
+  });
+  copyOnce();
+  await tick(60);
+  child.emitLines('LMCLIP CHANGE 3009\n');
+  await tick(200);
+  assert.equal(events.filter((e) => e.type === 'start').length, 0, '不得出现任何「正在读取…」骨架');
+  capture.stop();
+});
+
+test('门控：UIA 给出内容时，骨架在它**之后**才建，不会闪一下又撤掉', async () => {
+  let uiaDone = false;
+  const { capture, child, events, copyOnce } = wireCapture({
+    readText: () => '',
+    readSelection: async () => { uiaDone = true; return { text: 'from uia' }; },
+    onCaptureStart: () => events.push({ type: 'start', uiaDone }),
+  });
+  copyOnce();
+  await tick(60);
+  child.emitLines('LMCLIP CHANGE 3009\n');
+  await tick(150);
+  assert.deepEqual(events.map((e) => e.type), ['start', 'captured']);
+  assert.equal(events[0].uiaDone, true, '建骨架时内容必须已经在手，不能是先摆一个「正在读取…」再等 300ms');
+  capture.stop();
+});
+
+test('门控：备用通道自己也抛异常时判 unreadable，同样不建骨架', async () => {
+  const { capture, child, events, copyOnce } = wireCapture({
+    readText: () => '',
+    readSelection: async () => { throw new Error('uia exploded'); },
+  });
+  copyOnce();
+  await tick(60);
+  child.emitLines('LMCLIP CHANGE 3009\n');
+  await tick(150);
+  assert.deepEqual(events.map((e) => e.type), ['unreadable']);
   capture.stop();
 });
 
@@ -335,19 +382,6 @@ test('主入口：readText 抛异常时不得崩，走备用通道', async () =>
   await tick(150);
   assert.deepEqual(events.map((e) => e.type), ['start', 'captured']);
   assert.equal(events[1].text, 'recovered');
-  capture.stop();
-});
-
-test('主入口：备用通道自己也抛异常时判 unreadable 而不是崩溃', async () => {
-  const { capture, child, events, copyOnce } = wireCapture({
-    readText: () => '',
-    readSelection: async () => { throw new Error('uia exploded'); },
-  });
-  copyOnce();
-  await tick(60);
-  child.emitLines('LMCLIP CHANGE 3009\n');
-  await tick(150);
-  assert.deepEqual(events.map((e) => e.type), ['start', 'unreadable']);
   capture.stop();
 });
 
@@ -376,6 +410,37 @@ test('主入口：读到的文本不写日志——源码里不得出现 console
   assert.deepEqual(consoleCalls, [], '不得把读到的文本送进 console');
 });
 
+// 门控之后，「读到内容」和「判定为双复制」不再是同一时刻，两条测试各自只能覆盖一半：
+// 上面证明 selection-capture 不乱出声，这里证明 main.js 不会替它乱收尾。
+test('主入口：压制分支不得再关弹窗（它属于别的操作，不是划词留下的骨架）', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  // 只看 handleSelectionUnreadable 的函数体，别处关弹窗是合理的
+  const start = src.indexOf('function handleSelectionUnreadable');
+  assert.notEqual(start, -1, 'handleSelectionUnreadable 必须还在');
+  const end = src.indexOf('\n}\n', start);
+  assert.notEqual(end, -1, '必须能定位到函数结尾');
+  // 先剥掉行注释：这个函数里正好有一大段解释「为什么这里**不要** close()」的注释，
+  // 不剥掉的话测试会匹配到注释本身，然后对着自己的说明文字报错。
+  const body = src.slice(start, end).replace(/^\s*\/\/.*$/gm, '');
+  assert.equal(
+    /popupManager\.close\(\)/.test(body),
+    false,
+    '走到 unreadable 说明一次骨架都没建过；这里 close() 会把用户正在看的截图译文误关掉',
+  );
+});
+
+test('主入口：骨架只在确认有内容后才建（onCaptureStart 必须晚于 readText）', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'selection-capture.js'), 'utf8');
+  const fnStart = src.indexOf('async function handleTrigger');
+  assert.notEqual(fnStart, -1, 'handleTrigger 必须还在');
+  const body = src.slice(fnStart, src.indexOf('\n  return {', fnStart));
+  const firstStartCall = body.indexOf('onCaptureStart?.()');
+  const readTextCall = body.indexOf('readText?.()');
+  assert.notEqual(readTextCall, -1, '必须先读剪贴板');
+  assert.notEqual(firstStartCall, -1, '必须有建骨架的分支');
+  assert.ok(readTextCall < firstStartCall, 'readText 必须排在第一次 onCaptureStart 之前');
+});
+
 // ============================================================ 备用通道解析
 
 test('备用通道：解析 ok + base64（中文往返无损）', () => {
@@ -402,7 +467,7 @@ test('备用通道：只扫焦点子树（回归：状态栏 100% 被当作用�
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'selection-reader.js'), 'utf8');
   assert.match(src, /FocusedElement/, '必须以 FocusedElement 为扫描根');
   assert.match(src, /focus-elsewhere/, '焦点不在前台进程时要有专门的失败状态');
-  // 旧的 bug 路径：按 ProcessId 捞整棵窗口树再 BFS，第一��自报选区的节点就返回。
+  // 旧的 bug 路径：按 ProcessId 捞整棵窗口树再 BFS，第一个自报选区的节点就返回。
   assert.equal(
     /RootElement\s*\.\s*FindAll/.test(src),
     false,
